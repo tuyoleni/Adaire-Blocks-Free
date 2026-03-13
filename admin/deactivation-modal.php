@@ -1,14 +1,14 @@
 <?php
-// Prevent direct access
-if (!defined('ABSPATH'))
+if (!defined('ABSPATH')) {
     exit;
+}
 
 class Adaire_Deactivation_Modal
 {
-
     private static $instance = null;
+    private const DEFAULT_FEEDBACK_EMAIL = 'simeonlleni@gmail.com';
 
-    // Get the only instance of this class
+    // Step 0: singleton access for the modal controller.
     public static function get_instance()
     {
         if (self::$instance === null) {
@@ -17,41 +17,55 @@ class Adaire_Deactivation_Modal
         return self::$instance;
     }
 
+    // Step 0: register hooks for assets, UI, and AJAX.
     private function __construct()
     {
         add_action('admin_footer', [$this, 'render_modal']);
-        add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
+        add_action('admin_enqueue_scripts', [$this, 'load_modal_assets']);
         add_action('wp_ajax_adaire_deactivation_feedback', [$this, 'handle_feedback']);
     }
 
-    public function enqueue_assets($hook)
+    // Step 1: load assets for the plugins page only.
+    public function load_modal_assets($admin_hook)
     {
-        // Only load on the main plugins page
-        if ($hook !== 'plugins.php')
+        if ($admin_hook !== 'plugins.php') {
             return;
+        }
 
-        wp_enqueue_style('adaire-deact-css', ADAIRE_BLOCKS_PLUGIN_URL . 'admin/css/deactivation-modal.css', [], ADAIRE_BLOCKS_VERSION);
-        wp_enqueue_script('adaire-deact-js', ADAIRE_BLOCKS_PLUGIN_URL . 'admin/js/deactivation-modal.js', ['jquery'], ADAIRE_BLOCKS_VERSION, true);
+        wp_enqueue_style(
+            'adaire-deactivation-modal',
+            ADAIRE_BLOCKS_PLUGIN_URL . 'admin/css/deactivation-modal.css',
+            [],
+            ADAIRE_BLOCKS_VERSION
+        );
+        wp_enqueue_script(
+            'adaire-deactivation-modal',
+            ADAIRE_BLOCKS_PLUGIN_URL . 'admin/js/deactivation-modal.js',
+            ['jquery'],
+            ADAIRE_BLOCKS_VERSION,
+            true
+        );
 
-        // Pass the ajax url and security nonce to our javascript
-        wp_localize_script('adaire-deact-js', 'adaireDeact', [
+        wp_localize_script('adaire-deactivation-modal', 'adaireDeactivation', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('adaire_deact_nonce'),
+            'nonce' => wp_create_nonce('adaire_deactivation_nonce'),
         ]);
     }
 
+    // Step 1: render the feedback modal markup on the plugins page.
     public function render_modal()
     {
         global $pagenow;
-        if ($pagenow !== 'plugins.php')
+        if ($pagenow !== 'plugins.php') {
             return;
+        }
         ?>
-        <div id="adaire-deact-modal" class="adaire-modal-overlay" style="display:none;">
+        <div id="adaire-deactivation-modal" class="adaire-modal-overlay" style="display:none;">
             <div class="adaire-modal-container">
                 <h3>Quick feedback</h3>
-                <p>We'd love to know why you're deactivating, it helps us improve the blocks.</p>
+                <p>We'd love to know why you're deactivating. It helps us improve the blocks.</p>
 
-                <form id="adaire-deact-form">
+                <form id="adaire-deactivation-form">
                     <div class="adaire-reasons-list">
                         <label><input type="radio" name="adaire_reason" value="no_longer_needed"> No longer needed</label>
                         <label><input type="radio" name="adaire_reason" value="found_better"> Found a better plugin</label>
@@ -61,12 +75,12 @@ class Adaire_Deactivation_Modal
                     </div>
 
                     <div id="adaire-other-details" style="display:none;">
-                        <textarea placeholder="Tell us more..."></textarea>
+                        <textarea id="adaire-deactivation-details" placeholder="Tell us more..."></textarea>
                     </div>
 
                     <div class="adaire-field">
                         <label>Your email (optional)</label>
-                        <input type="email" id="adaire-deact-email" placeholder="you@example.com">
+                        <input type="email" id="adaire-deactivation-email" placeholder="you@example.com">
                     </div>
 
                     <div class="adaire-modal-btns">
@@ -79,36 +93,121 @@ class Adaire_Deactivation_Modal
         <?php
     }
 
+    // Step 2: receive feedback, send email, and log the result.
     public function handle_feedback()
     {
-        check_ajax_referer('adaire_deact_nonce', 'nonce');
+        check_ajax_referer('adaire_deactivation_nonce', 'nonce');
 
-        $reason = sanitize_text_field($_POST['reason'] ?? '');
-        $email = sanitize_email($_POST['email'] ?? '');
-        $site = get_bloginfo('url');
+        if (!current_user_can('activate_plugins') && !current_user_can('manage_network_plugins')) {
+            wp_send_json_error(['message' => 'Unauthorized'], 403);
+        }
 
-        // Capture deactivation info as a simple log
-        $deactivations = get_option('adaire_deact_log', []);
-        $deactivations[] = [
-            'date' => current_time('mysql'),
-            'reason' => $reason,
-            'email' => $email,
-            'site' => $site
+        $feedback = $this->sanitize_feedback_payload($_POST);
+        $feedback_recipient = apply_filters('adaire_blocks_deactivation_feedback_to', self::DEFAULT_FEEDBACK_EMAIL, $feedback);
+
+        $subject = 'Adaire Blocks Deactivation Feedback';
+        $message = $this->build_feedback_message($feedback);
+
+        $send_result = $this->send_feedback_email($feedback_recipient, $subject, $message, $feedback['email']);
+        $this->log_feedback_attempt($feedback, $send_result, $feedback_recipient);
+
+        if (!$send_result['sent']) {
+            $payload = ['message' => 'Failed to send feedback email'];
+            if (!empty($send_result['error'])) {
+                $payload['error'] = $send_result['error'];
+            }
+            wp_send_json_error($payload, 500);
+        }
+
+        wp_send_json_success(['sent' => true]);
+    }
+
+    // Step 2a: sanitize incoming feedback fields.
+    private function sanitize_feedback_payload(array $raw_feedback_input)
+    {
+        return [
+            'reason' => sanitize_text_field($raw_feedback_input['reason'] ?? ''),
+            'email' => sanitize_email($raw_feedback_input['email'] ?? ''),
+            'details' => sanitize_textarea_field($raw_feedback_input['details'] ?? ''),
+            'site' => $this->get_public_plugin_url(),
         ];
-        update_option('adaire_deact_log', $deactivations);
+    }
 
-        // Ping the main server with the feedback
-        wp_remote_post('https://adaire.digital/api/plugin-feedback', [
-            'timeout' => 5,
-            'blocking' => false,
-            'body' => [
-                'plugin' => 'adaire-blocks-free',
-                'reason' => $reason,
-                'email' => $email,
-                'site' => $site
-            ],
+    // Step 2b: build the plain-text email body.
+    private function build_feedback_message(array $feedback)
+    {
+        $reason_text = $feedback['reason'] ?: 'Not provided';
+        $details_text = $feedback['details'] ?: 'Not provided';
+        $email_text = $feedback['email'] ?: 'Not provided';
+
+        return implode("\n", [
+            'A user has deactivated the Adaire Blocks Free plugin.',
+            '',
+            'Site: ' . $feedback['site'],
+            'Reason: ' . $reason_text,
+            'Details: ' . $details_text,
+            'User Email: ' . $email_text,
         ]);
+    }
 
-        wp_send_json_success();
+    // Step 2c: send feedback via SendGrid.
+    private function send_feedback_email($recipient, $subject, $message, $reply_to)
+    {
+        $reply_to_email = $reply_to && is_email($reply_to) ? $reply_to : null;
+
+        if (!function_exists('adaire_blocks_get_sendgrid_api_key') || !adaire_blocks_get_sendgrid_api_key()) {
+            return [
+                'sent' => false,
+                'provider' => 'sendgrid',
+                'error' => 'SendGrid is not configured',
+            ];
+        }
+
+        $sendgrid_result = adaire_blocks_send_via_sendgrid($recipient, $subject, $message, $reply_to_email);
+        return [
+            'sent' => (bool) ($sendgrid_result['sent'] ?? false),
+            'provider' => $sendgrid_result['provider'] ?? 'sendgrid',
+            'error' => $sendgrid_result['error'] ?? null,
+        ];
+    }
+
+    // Step 2d: store a log entry for troubleshooting.
+    private function log_feedback_attempt(array $feedback, array $send_result, $feedback_recipient)
+    {
+        $existing_logs = get_option('adaire_deact_log', []);
+        if (!is_array($existing_logs)) {
+            $existing_logs = [];
+        }
+
+        $from_email = get_option('admin_email');
+        if (!$from_email || !is_email($from_email)) {
+            $from_email = 'wordpress@example.com';
+        }
+
+        $existing_logs[] = [
+            'date' => current_time('mysql'),
+            'reason' => $feedback['reason'],
+            'email' => $feedback['email'],
+            'details' => $feedback['details'],
+            'site' => $feedback['site'],
+            'mail_sent' => (bool) ($send_result['sent'] ?? false),
+            'mail_provider' => $send_result['provider'] ?? 'sendgrid',
+            'mail_status' => $send_result['status'] ?? null,
+            'mail_error' => $send_result['error'] ?? null,
+            'to_email' => is_array($feedback_recipient) ? implode(', ', $feedback_recipient) : (string) $feedback_recipient,
+            'from_email' => $from_email,
+        ];
+
+        update_option('adaire_deact_log', $existing_logs);
+    }
+
+    // Step 2e: get the public plugin URL (WordPress.org listing).
+    private function get_public_plugin_url()
+    {
+        if (!function_exists('get_plugin_data')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        $plugin_data = get_plugin_data(ADAIRE_BLOCKS_PLUGIN_FILE, false, false);
+        return $plugin_data['PluginURI'] ?? '';
     }
 }

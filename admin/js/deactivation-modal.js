@@ -1,65 +1,81 @@
 (function ($) {
-    'use strict';
+	"use strict";
 
-    var deactivateUrl = '';
+	var pluginDeactivationUrl = "";
 
-    // Show the feedback popup
-    function openModal() {
-        var $modal = $('#adaire-deact-modal');
-        if (!$modal.length) return;
+	// Step 1: find the modal element.
+	function getModal() {
+		return $("#adaire-deactivation-modal");
+	}
 
-        $modal.fadeIn(150);
-        $modal.find('input[type="radio"]').prop('checked', false);
-        $modal.find('input[type="email"], textarea').val('');
-        $('#adaire-other-details').hide();
-    }
+	// Step 1: reset the form fields for a fresh submit.
+	function resetForm() {
+		var $modal = getModal();
+		$modal.find('input[name="adaire_reason"]').prop("checked", false);
+		$modal.find("#adaire-deactivation-email, #adaire-deactivation-details").val("");
+		$("#adaire-other-details").hide();
+		$modal.find(".adaire-submit-btn").prop("disabled", false).text("Submit & Deactivate");
+	}
 
-    // Just go to the actual link
-    function proceed() {
-        if (deactivateUrl) window.location.href = deactivateUrl;
-    }
+	// Step 1: show the modal.
+	function showModal() {
+		var $modal = getModal();
+		if (!$modal.length) return;
+		resetForm();
+		$modal.fadeIn(150);
+	}
 
-    $(document).ready(function () {
-        // Target any link that deactivates or deletes OUR plugin
-        // We look for 'adaire' in the href to be sure we catch it
-        $(document).on('click', 'a[href*="adaire"][href*="action=deactivate"], a[href*="adaire"][href*="action=delete"]', function (e) {
-            if (deactivateUrl) return;
+	// Step 1: hide the modal.
+	function closeModal() {
+		getModal().fadeOut(150);
+	}
 
-            e.preventDefault();
-            deactivateUrl = $(this).attr('href');
-            openModal();
-        });
-    });
+	// Step 3: continue with the actual plugin deactivation.
+	function proceedWithDeactivation() {
+		if (pluginDeactivationUrl) {
+			window.location.href = pluginDeactivationUrl;
+		}
+	}
 
-    // Toggle extra textarea if "Other" is picked
-    $(document).on('change', 'input[name="adaire_reason"]', function () {
-        $('#adaire-other-details').toggle($(this).val() === 'other');
-    });
+	$(document).on(
+		"click",
+		'a[href*="adaire"][href*="action=deactivate"]',
+		function (event) {
+			if (pluginDeactivationUrl) return;
+			event.preventDefault();
+			pluginDeactivationUrl = $(this).attr("href");
+			showModal();
+		}
+	);
 
-    // Close and continue to deactivate if they skip
-    $(document).on('click', '.adaire-skip-btn', proceed);
+	$(document).on("change", 'input[name="adaire_reason"]', function () {
+		$("#adaire-other-details").toggle($(this).val() === "other");
+	});
 
-    // Close modal if clicking outside the box
-    $(document).on('click', '#adaire-deact-modal', function (e) {
-        if ($(e.target).hasClass('adaire-modal-overlay')) {
-            $(this).fadeOut(150);
-            deactivateUrl = '';
-        }
-    });
+	$(document).on("click", ".adaire-skip-btn", function () {
+		closeModal();
+		proceedWithDeactivation();
+	});
 
-    // Send the feedback then deactivate
-    $(document).on('submit', '#adaire-deact-form', function (e) {
-        e.preventDefault();
+	$(document).on("click", "#adaire-deactivation-modal", function (event) {
+		if ($(event.target).hasClass("adaire-modal-overlay")) {
+			closeModal();
+			pluginDeactivationUrl = "";
+		}
+	});
 
-        var $btn = $('.adaire-submit-btn');
-        $btn.prop('disabled', true).text('Sending…');
+	$(document).on("submit", "#adaire-deactivation-form", function (event) {
+		event.preventDefault();
 
-        $.post(adaireDeact.ajaxUrl, {
-            action: 'adaire_deactivation_feedback',
-            nonce: adaireDeact.nonce,
-            reason: $('input[name="adaire_reason"]:checked').val() || 'none',
-            email: $('#adaire-deact-email').val()
-        }).always(proceed);
-    });
+		var $submitButton = $(".adaire-submit-btn");
+		$submitButton.prop("disabled", true).text("Sending…");
 
-}(jQuery));
+		$.post(adaireDeactivation.ajaxUrl, {
+			action: "adaire_deactivation_feedback",
+			nonce: adaireDeactivation.nonce,
+			reason: $('input[name="adaire_reason"]:checked').val() || "none",
+			email: $("#adaire-deactivation-email").val(),
+			details: $("#adaire-deactivation-details").val(),
+		}).always(proceedWithDeactivation);
+	});
+})(jQuery);

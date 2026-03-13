@@ -30,6 +30,7 @@ define('ADAIRE_BLOCKS_IS_FREE', true);
 
 // Include the main plugin class
 require_once ADAIRE_BLOCKS_PLUGIN_PATH . 'includes/class-adaire-blocks-config.php';
+require_once ADAIRE_BLOCKS_PLUGIN_PATH . 'includes/sendgrid.php';
 
 // Initialize the plugin
 function adaire_blocks_init()
@@ -125,6 +126,11 @@ if (is_admin()) {
     // Deactivation feedback modal
     require_once ADAIRE_BLOCKS_PLUGIN_PATH . 'admin/deactivation-modal.php';
     Adaire_Deactivation_Modal::get_instance();
+
+    // Deactivation feedback log + test page (remove for production)
+    require_once ADAIRE_BLOCKS_PLUGIN_PATH . 'admin/deactivation-log-page.php';
+    Adaire_Deactivation_Log_Page::get_instance();
+
 }
 
 /**
