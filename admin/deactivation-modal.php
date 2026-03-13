@@ -103,7 +103,8 @@ class Adaire_Deactivation_Modal
         }
 
         $feedback = $this->sanitize_feedback_payload($_POST);
-        $feedback_recipient = apply_filters('adaire_blocks_deactivation_feedback_to', self::DEFAULT_FEEDBACK_EMAIL, $feedback);
+        $default_recipient = defined('ADAIRE_FEEDBACK_EMAIL') ? ADAIRE_FEEDBACK_EMAIL : self::DEFAULT_FEEDBACK_EMAIL;
+        $feedback_recipient = apply_filters('adaire_blocks_deactivation_feedback_to', $default_recipient, $feedback);
 
         $subject = 'Adaire Blocks Deactivation Feedback';
         $message = $this->build_feedback_message($feedback);

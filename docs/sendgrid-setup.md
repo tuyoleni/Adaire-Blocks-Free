@@ -14,25 +14,13 @@ This plugin sends deactivation feedback emails through SendGrid only. When a use
 Add this in `wordpress/wp-config.php` (near other `define(...)` entries):
 ```
 define('ADAIRE_SENDGRID_API_KEY', 'your_sendgrid_key_here');
+define('ADAIRE_FEEDBACK_EMAIL', 'feedback@yourdomain.com');
 ```
 
-## 3) (Optional) Customize “From” details
-You can override the “From” email/name via filters:
-```
-add_filter('adaire_blocks_deactivation_feedback_from', function () {
-    return 'you@yourdomain.com';
-});
-
-add_filter('adaire_blocks_deactivation_feedback_from_name', function () {
-    return 'Your Brand';
-});
-```
-
-## 4) Verify it works
+## 3) Verify it works
 1. Go to **Tools → Adaire Deactivation Logs**.
 2. Use **Send Test Email** to send a test message.
 3. Check the inbox for the test email.
 
 ## Notes
 - The **Tools → Adaire Deactivation Logs** page is for setup/testing only. Remove it before production so clients cannot access it.
-- There is no `wp_mail` fallback. If SendGrid is not configured, emails will not send.
